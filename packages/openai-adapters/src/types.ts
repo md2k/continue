@@ -142,6 +142,9 @@ export type GeminiConfig = z.infer<typeof GeminiConfigSchema>;
 export const AnthropicConfigSchema = OpenAIConfigSchema.extend({
   provider: z.literal("anthropic"),
   apiKey: z.string(),
+  cachingStrategy: z
+    .enum(["none", "systemOnly", "systemAndTools", "optimized"])
+    .optional(),
 });
 export type AnthropicConfig = z.infer<typeof AnthropicConfigSchema>;
 

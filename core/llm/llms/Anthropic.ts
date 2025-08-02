@@ -1,4 +1,5 @@
 import { streamSse } from "@continuedev/fetch";
+import { constructLlmApi } from "@continuedev/openai-adapters";
 import {
   ChatMessage,
   CompletionOptions,
@@ -8,6 +9,7 @@ import {
 import { safeParseToolCallArgs } from "../../tools/parseArgs.js";
 import { renderChatMessage, stripImages } from "../../util/messageContent.js";
 import { BaseLLM } from "../index.js";
+import { LlmApiRequestType } from "../openaiTypeConverters.js";
 
 class Anthropic extends BaseLLM {
   static providerName = "anthropic";
@@ -19,6 +21,52 @@ class Anthropic extends BaseLLM {
     },
     apiBase: "https://api.anthropic.com/v1/",
   };
+
+  // ✅ ENABLE ADAPTER: Route all requests through adapter system
+  protected useOpenAIAdapterFor: (LlmApiRequestType | "*")[] = ["*"];
+
+  constructor(options: LLMOptions) {
+    super(options);
+
+    // CRITICAL: Force adapter routing by disabling templateMessages
+    this.templateMessages = undefined;
+  }
+
+  protected createOpenAiAdapter() {
+    const strategy = this.determineCachingStrategy();
+    console.log(
+      `[ANTHROPIC CORE] 🚀 Creating adapter with strategy: ${strategy}`,
+    );
+    return constructLlmApi({
+      provider: this.providerName as any,
+      apiKey: this.apiKey ?? "",
+      apiBase: this.apiBase,
+      requestOptions: this.requestOptions,
+      cachingStrategy: strategy,
+    } as any);
+  }
+
+  private determineCachingStrategy():
+    | "none"
+    | "systemOnly"
+    | "systemAndTools"
+    | "optimized" {
+    if (!this.cacheBehavior) {
+      return "systemAndTools"; // Default strategy
+    }
+
+    // Translate cacheBehavior to adapter strategy
+    if (
+      this.cacheBehavior.cacheSystemMessage &&
+      this.cacheBehavior.cacheConversation
+    ) {
+      return "optimized";
+    } else if (this.cacheBehavior.cacheSystemMessage) {
+      return "systemAndTools";
+    } else {
+      return "none";
+    }
+  }
 
   public convertArgs(options: CompletionOptions) {
     // should be public for use within VertexAI
@@ -166,6 +214,7 @@ class Anthropic extends BaseLLM {
     signal: AbortSignal,
     options: CompletionOptions,
   ): AsyncGenerator<string> {
+    console.log("[ANTHROPIC CORE] 🔄 Using fallback _streamComplete");
     const messages = [{ role: "user" as const, content: prompt }];
     for await (const update of this._streamChat(messages, signal, options)) {
       yield renderChatMessage(update);
@@ -312,6 +361,7 @@ class Anthropic extends BaseLLM {
     signal: AbortSignal,
     options: CompletionOptions,
   ): AsyncGenerator<ChatMessage> {
+    console.log("[ANTHROPIC CORE] 🔄 Using fallback _streamChat");
     if (!this.apiKey || this.apiKey === "") {
       throw new Error(
         "Request not sent. You have an Anthropic model configured in your config.json, but the API key is not set.",
